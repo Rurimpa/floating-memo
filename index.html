@@ -57,7 +57,7 @@
       overflow: auto;
       background-color: #eef;
     }
-    /* 各付箋の基本スタイル - 固定サイズをなくして可変にする */
+    /* 各付箋の基本スタイル（可変サイズ） */
     .task {
       position: absolute;
       min-width: 150px;
@@ -73,15 +73,9 @@
       overflow: hidden;
     }
     /* 重要度による背景色 */
-    .importance-high {
-      background-color: pink;
-    }
-    .importance-medium {
-      background-color: orange;
-    }
-    .importance-low {
-      background-color: lightyellow;
-    }
+    .importance-high { background-color: pink; }
+    .importance-medium { background-color: orange; }
+    .importance-low { background-color: lightyellow; }
     /* 緊急時（期限24時間以内）：枠を太くして点滅 */
     @keyframes blink {
       0%   { border-color: red; }
@@ -92,12 +86,11 @@
       border-width: 4px !important;
       animation: blink 1s infinite;
     }
-    /* 付箋内のテキスト領域 */
+    /* 付箋内のテキスト */
     .memo-content {
       font-weight: bold;
       line-height: 1.4;
     }
-    /* メタ情報＆ボタン */
     .meta-info {
       font-size: 12px;
     }
@@ -163,12 +156,27 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // タスクデータ（アクティブと完了済み）を保持
       let activeTasks = [];
       let completedTasks = [];
       let taskId = 0;
-      
-      // 保存・復元
+      let highestZ = 1000; // グローバルな z-index の管理
+      let autoShuffleTimeout;
+
+      // ユーザー操作があるたびに自動シャッフルタイマーをリセットする
+      function resetAutoShuffleTimer() {
+        if (autoShuffleTimeout) clearTimeout(autoShuffleTimeout);
+        autoShuffleTimeout = setTimeout(function() {
+          if (document.getElementById('active-view').style.display !== 'none') {
+            shuffleTasks();
+          }
+        }, 30000);
+      }
+      // 入力、スクロール、タップ、ドラッグなどの操作でタイマーをリセット
+      ['mousemove', 'touchstart', 'scroll', 'keydown', 'click'].forEach(function(eventName) {
+        document.addEventListener(eventName, resetAutoShuffleTimer);
+      });
+      resetAutoShuffleTimer();
+
       function saveTasks() {
         localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
         localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
@@ -189,40 +197,35 @@
           taskId = 0;
         }
       }
-      
-      // 日付フォーマット（分まで）
+
       function formatDate(dateStr) {
         const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
         return new Date(dateStr).toLocaleString('ja-JP', options);
       }
-      
-      // 重要度を★で表示
+
       function getImportanceStars(imp) {
         if (imp === 3) return "★★★";
         if (imp === 2) return "★★";
         return "★";
       }
-      
-      // アクティブタスクのレンダリング（非シャッフル時：可変サイズ、グリッド配置）
+
+      // アクティブタスクのレンダリング（グリッドレイアウト、サイズは内容に合わせて可変）
       function renderActiveTasks() {
         const board = document.getElementById('task-board');
         board.innerHTML = '';
         activeTasks.forEach((task, index) => {
           const taskDiv = createTaskDiv(task, false);
-          // Grid layout: 基本的にセル幅170pxで配置（サイズはノート内容に応じて可変）
           const cols = Math.floor(board.clientWidth / 170) || 1;
           const row = Math.floor(index / cols);
           const col = index % cols;
           taskDiv.style.top = (row * 170 + 10) + 'px';
           taskDiv.style.left = (col * 170 + 10) + 'px';
-          // 非シャッフル時は固定サイズは設定せず、内容に応じたサイズに任せる
           taskDiv.classList.remove('float');
           taskDiv.style.transform = 'none';
           board.appendChild(taskDiv);
         });
       }
-      
-      // 完了済みタスクのレンダリング
+
       function renderCompletedTasks() {
         const board = document.getElementById('completed-board');
         board.innerHTML = '';
@@ -236,11 +239,20 @@
           board.appendChild(taskDiv);
         });
       }
-      
+
       // 付箋要素作成
       function createTaskDiv(task, isCompleted) {
         const taskDiv = document.createElement('div');
         taskDiv.classList.add('task');
+        // 重要度に応じたテキストサイズ
+        let textSize;
+        if (task.importance === 3) {
+          textSize = "20px";
+        } else if (task.importance === 2) {
+          textSize = "18px";
+        } else {
+          textSize = "16px";
+        }
         if (task.importance === 3) {
           taskDiv.classList.add('importance-high');
         } else if (task.importance === 2) {
@@ -256,15 +268,6 @@
             taskDiv.classList.add('urgent');
           }
         }
-        // テキストサイズを重要度によって変更（高：20px、中：18px、低：16px）
-        let textSize;
-        if (task.importance === 3) {
-          textSize = "20px";
-        } else if (task.importance === 2) {
-          textSize = "18px";
-        } else {
-          textSize = "16px";
-        }
         taskDiv.innerHTML = `
           <div class="memo-content" style="font-size: ${textSize};">
             ${task.content}
@@ -279,24 +282,27 @@
             ${isCompleted ? "" : `<button class="complete-btn" onclick="completeTask(${task.id}, event)">完了</button>`}
           </div>
         `;
+        // タップ時にも最前面に移動
         taskDiv.addEventListener('click', function(e) {
-          if (e.target.tagName.toLowerCase() === 'button') return;
-          editTask(task.id, e);
+          if (e.target.tagName.toLowerCase() !== 'button') {
+            taskDiv.style.zIndex = highestZ++;
+          }
         });
         return taskDiv;
       }
-      
-      // ドラッグ可能にするための関数
+
+      // ドラッグ可能にする関数（開始時に該当要素を最前面に）
       function enableDrag(el) {
         el.style.cursor = "move";
+        el.addEventListener("mousedown", onStart);
+        el.addEventListener("touchstart", onStart);
         let offsetX, offsetY;
         let dragging = false;
-        
         function onStart(e) {
           e.preventDefault();
+          // bring to front
+          el.style.zIndex = highestZ++;
           dragging = true;
-          // 浮遊アニメーションを停止
-          el.classList.remove('float');
           if (e.type === "mousedown") {
             offsetX = e.clientX - el.offsetLeft;
             offsetY = e.clientY - el.offsetTop;
@@ -310,7 +316,6 @@
             document.addEventListener("touchend", onEnd);
           }
         }
-        
         function onMove(e) {
           if (!dragging) return;
           let clientX, clientY;
@@ -324,7 +329,6 @@
           el.style.left = (clientX - offsetX) + "px";
           el.style.top = (clientY - offsetY) + "px";
         }
-        
         function onEnd(e) {
           dragging = false;
           document.removeEventListener("mousemove", onMove);
@@ -332,12 +336,70 @@
           document.removeEventListener("touchmove", onMove);
           document.removeEventListener("touchend", onEnd);
         }
-        
-        el.addEventListener("mousedown", onStart);
-        el.addEventListener("touchstart", onStart);
       }
-      
-      // グローバル関数公開（ソート、シャッフル、編集、完了、画面切替）
+
+      window.editTask = function(id, e) {
+        e.stopPropagation();
+        let task = activeTasks.find(t => t.id == id);
+        if (!task) return;
+        const newContent = prompt("メモ内容を編集してください：", task.content);
+        if (newContent === null) return;
+        const newDeadline = prompt("期限を編集してください（YYYY-MM-DDTHH:MM形式、空欄で期限なし）：", task.deadline ? task.deadline.slice(0,16) : "");
+        if (newDeadline === null) return;
+        const newImportance = prompt("重要度を編集してください（1:低, 2:中, 3:高）：", task.importance);
+        if (newImportance === null) return;
+        task.content = newContent;
+        task.deadline = newDeadline ? new Date(newDeadline).toISOString() : null;
+        task.importance = parseInt(newImportance) || task.importance;
+        saveTasks();
+        renderActiveTasks();
+      };
+
+      window.completeTask = function(id, e) {
+        e.stopPropagation();
+        const index = activeTasks.findIndex(t => t.id == id);
+        if (index > -1) {
+          const completed = activeTasks.splice(index, 1)[0];
+          completedTasks.push(completed);
+          saveTasks();
+          renderActiveTasks();
+          renderCompletedTasks();
+        }
+      };
+
+      window.showCompleted = function() {
+        document.getElementById('active-view').style.display = 'none';
+        document.getElementById('active-header').style.display = 'none';
+        document.getElementById('completed-view').style.display = 'block';
+        document.getElementById('completed-header').style.display = 'block';
+      };
+
+      window.showActive = function() {
+        document.getElementById('completed-view').style.display = 'none';
+        document.getElementById('completed-header').style.display = 'none';
+        document.getElementById('active-view').style.display = 'block';
+        document.getElementById('active-header').style.display = 'block';
+        renderActiveTasks();
+      };
+
+      document.getElementById('task-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const content = document.getElementById('task-content').value;
+        const deadlineVal = document.getElementById('task-deadline').value;
+        const importance = parseInt(document.getElementById('task-importance').value);
+        const newTask = {
+          id: taskId++,
+          content: content,
+          created: new Date().toISOString(),
+          deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
+          importance: importance
+        };
+        activeTasks.push(newTask);
+        saveTasks();
+        renderActiveTasks();
+        e.target.reset();
+      });
+
       window.sortTasks = function(criteria, view) {
         const list = view === 'active' ? activeTasks : completedTasks;
         if (criteria === 'deadline') {
@@ -363,7 +425,7 @@
           renderCompletedTasks();
         }
       };
-      
+
       window.shuffleTasks = function() {
         const board = document.getElementById('task-board');
         const taskDivs = board.getElementsByClassName('task');
@@ -371,7 +433,7 @@
           const taskDiv = taskDivs[i];
           const task = activeTasks.find(t => t.id == taskDiv.dataset.id);
           if (task) {
-            // シャッフル時は、重要度による最小サイズを設定
+            // シャッフル時は重要度による最小サイズ設定
             if (task.importance === 3) {
               taskDiv.style.minWidth = '220px';
               taskDiv.style.minHeight = '200px';
@@ -392,83 +454,10 @@
           const randomAngle = Math.random() * 20 - 10;
           taskDiv.style.setProperty('--rotation', randomAngle + 'deg');
           taskDiv.classList.add('float');
-          // ドラッグ機能を有効化
           enableDrag(taskDiv);
         }
       };
-      
-      window.editTask = function(id, e) {
-        e.stopPropagation();
-        let task = activeTasks.find(t => t.id == id);
-        if (!task) return;
-        // 各項目を個別に編集可能にする
-        const newContent = prompt("メモ内容を編集してください：", task.content);
-        if (newContent === null) return;
-        const newDeadline = prompt("期限を編集してください（YYYY-MM-DDTHH:MM形式、空欄で期限なし）：", task.deadline ? task.deadline.slice(0,16) : "");
-        if (newDeadline === null) return;
-        const newImportance = prompt("重要度を編集してください（1:低, 2:中, 3:高）：", task.importance);
-        if (newImportance === null) return;
-        task.content = newContent;
-        task.deadline = newDeadline ? new Date(newDeadline).toISOString() : null;
-        task.importance = parseInt(newImportance) || task.importance;
-        saveTasks();
-        renderActiveTasks();
-      };
-      
-      window.completeTask = function(id, e) {
-        e.stopPropagation();
-        const index = activeTasks.findIndex(t => t.id == id);
-        if (index > -1) {
-          const completed = activeTasks.splice(index, 1)[0];
-          completedTasks.push(completed);
-          saveTasks();
-          renderActiveTasks();
-          renderCompletedTasks();
-        }
-      };
-      
-      window.showCompleted = function() {
-        document.getElementById('active-view').style.display = 'none';
-        document.getElementById('active-header').style.display = 'none';
-        document.getElementById('completed-view').style.display = 'block';
-        document.getElementById('completed-header').style.display = 'block';
-      };
-      
-      window.showActive = function() {
-        document.getElementById('completed-view').style.display = 'none';
-        document.getElementById('completed-header').style.display = 'none';
-        document.getElementById('active-view').style.display = 'block';
-        document.getElementById('active-header').style.display = 'block';
-        renderActiveTasks();
-      };
-      
-      // フォーム送信時の処理
-      document.getElementById('task-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const content = document.getElementById('task-content').value;
-        const deadlineVal = document.getElementById('task-deadline').value;
-        const importance = parseInt(document.getElementById('task-importance').value);
-        const newTask = {
-          id: taskId++,
-          content: content,
-          created: new Date().toISOString(),
-          deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
-          importance: importance
-        };
-        activeTasks.push(newTask);
-        saveTasks();
-        renderActiveTasks();
-        e.target.reset();
-      });
-      
-      // 30秒ごとに自動シャッフル（アクティブビューの場合のみ）
-      setInterval(function() {
-        if (document.getElementById('active-view').style.display !== 'none') {
-          shuffleTasks();
-        }
-      }, 30000);
-      
-      // 初期読み込み
+
       loadTasks();
       renderActiveTasks();
       renderCompletedTasks();
