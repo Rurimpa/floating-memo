@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>浮遊メモ</title>
   <style>
-    /* 全体レイアウト */
+    /* 基本レイアウト */
     body {
       font-family: Arial, sans-serif;
       margin: 0;
@@ -21,27 +21,25 @@
     }
     header h1 {
       margin: 0;
-      font-size: 18px; /* タイトルのフォントを小さく */
+      font-size: 18px; /* タイトルは常に表示、フォントは小さめ */
     }
-    /* メニュー切替ボタン */
+    /* メニュー表示用ボタン（スマホ用） */
     #menu-toggle {
       font-size: 14px;
       padding: 5px 10px;
     }
-    /* control-panel：スマホ用に隠しておき、必要時にプルダウン表示 */
+    /* コントロールパネル（ソートボタン、メモ入力フォーム） */
     #control-panel {
       display: none;
       background-color: #fff;
       border-bottom: 1px solid #ddd;
       padding: 5px 10px;
     }
-    /* ソートボタン群 */
     .header-buttons button {
       margin: 0 5px;
       padding: 5px 10px;
       font-size: 14px;
     }
-    /* シャッフル表示ボタン：虹色グラデーション */
     #shuffle-btn {
       background: linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet);
       color: #fff;
@@ -60,6 +58,10 @@
       padding: 5px;
       font-size: 14px;
     }
+    /* 期限入力はラベル付きで分かりやすく */
+    #task-deadline {
+      vertical-align: middle;
+    }
     /* タスクボード */
     #task-board, #completed-board {
       position: relative;
@@ -69,7 +71,7 @@
       overflow: auto;
       background-color: #eef;
     }
-    /* 各付箋の基本スタイル（可変サイズ） */
+    /* 付箋の基本スタイル（可変サイズ） */
     .task {
       position: absolute;
       min-width: 150px;
@@ -88,17 +90,16 @@
     .importance-high { background-color: pink; }
     .importance-medium { background-color: orange; }
     .importance-low { background-color: lightyellow; }
-    /* 緊急時（期限24時間以内）：枠を太くして点滅 */
+    /* 緊急時（期限24時間以内） */
     @keyframes blink {
-      0%   { border-color: red; }
-      50%  { border-color: darkred; }
+      0% { border-color: red; }
+      50% { border-color: darkred; }
       100% { border-color: red; }
     }
     .urgent {
       border-width: 4px !important;
       animation: blink 1s infinite;
     }
-    /* 付箋内のテキスト */
     .memo-content {
       font-weight: bold;
       line-height: 1.4;
@@ -111,15 +112,6 @@
       margin-right: 3px;
       padding: 2px 5px;
     }
-    /* 浮遊アニメーション＋回転（シャッフル時用） */
-    .float {
-      animation: floatAnimation 3s ease-in-out infinite;
-    }
-    @keyframes floatAnimation {
-      0%   { transform: rotate(var(--rotation, 0deg)) translateY(0); }
-      50%  { transform: rotate(var(--rotation, 0deg)) translateY(-10px); }
-      100% { transform: rotate(var(--rotation, 0deg)) translateY(0); }
-    }
   </style>
 </head>
 <body>
@@ -127,7 +119,6 @@
     <h1>浮遊メモ</h1>
     <button id="menu-toggle">メニュー</button>
   </header>
-  <!-- control-panel：スマホなどで必要なときに表示 -->
   <div id="control-panel">
     <div id="active-header" class="header-buttons">
       <button onclick="sortTasks('deadline', 'active')">期限順</button>
@@ -138,7 +129,6 @@
     </div>
     <form id="task-form">
       <textarea id="task-content" placeholder="タスク内容" required rows="3"></textarea><br>
-      <!-- 期限入力部分：ラベルを追加してわかりやすく -->
       <label for="task-deadline">期限：</label>
       <input type="datetime-local" id="task-deadline">
       <select id="task-importance">
@@ -149,13 +139,10 @@
       <button type="submit">メモの追加</button>
     </form>
   </div>
-
   <div class="container">
-    <!-- アクティブタスク画面 -->
     <div id="active-view" style="display: block;">
       <div id="task-board"></div>
     </div>
-    <!-- 完了済みタスク画面 -->
     <div id="completed-view" style="display: none;">
       <div id="completed-board"></div>
     </div>
@@ -165,310 +152,309 @@
     // メニュー表示のトグル処理
     document.getElementById('menu-toggle').addEventListener('click', function() {
       const cp = document.getElementById('control-panel');
-      if (cp.style.display === 'none' || cp.style.display === '') {
-        cp.style.display = 'block';
-      } else {
-        cp.style.display = 'none';
-      }
+      cp.style.display = (cp.style.display === 'block') ? 'none' : 'block';
     });
 
-    document.addEventListener('DOMContentLoaded', function() {
-      let activeTasks = [];
-      let completedTasks = [];
-      let taskId = 0;
-      let highestZ = 1000; // z-index 用
-      let autoShuffleTimeout;
-      
-      // 自動シャッフルタイマーのリセット
-      function resetAutoShuffleTimer() {
-        if (autoShuffleTimeout) clearTimeout(autoShuffleTimeout);
-        autoShuffleTimeout = setTimeout(function() {
-          if (document.getElementById('active-view').style.display !== 'none') {
-            shuffleTasks();
-          }
-        }, 30000);
-      }
-      ['mousemove', 'touchstart', 'scroll', 'keydown', 'click'].forEach(function(eventName) {
-        document.addEventListener(eventName, resetAutoShuffleTimer);
-      });
-      resetAutoShuffleTimer();
+    let activeTasks = [];
+    let completedTasks = [];
+    let taskId = 0;
+    let highestZ = 1000;
+    let shuffleAnimationId;
 
-      function saveTasks() {
-        localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
-        localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
-        localStorage.setItem('taskId', taskId.toString());
+    // 保存・復元
+    function saveTasks() {
+      localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
+      localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
+      localStorage.setItem('taskId', taskId.toString());
+    }
+    function loadTasks() {
+      try {
+        activeTasks = JSON.parse(localStorage.getItem('activeTasks')) || [];
+        completedTasks = JSON.parse(localStorage.getItem('completedTasks')) || [];
+        taskId = parseInt(localStorage.getItem('taskId'), 10) || 0;
+      } catch (e) {
+        console.error(e);
+        activeTasks = [];
+        completedTasks = [];
+        taskId = 0;
       }
-      function loadTasks() {
-        try {
-          const storedActive = localStorage.getItem('activeTasks');
-          const storedCompleted = localStorage.getItem('completedTasks');
-          const storedId = localStorage.getItem('taskId');
-          activeTasks = storedActive ? JSON.parse(storedActive) : [];
-          completedTasks = storedCompleted ? JSON.parse(storedCompleted) : [];
-          taskId = storedId ? parseInt(storedId, 10) : 0;
-        } catch (e) {
-          console.error("localStorage読み込みエラー", e);
-          activeTasks = [];
-          completedTasks = [];
-          taskId = 0;
+    }
+    function formatDate(dateStr) {
+      const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+      return new Date(dateStr).toLocaleString('ja-JP', options);
+    }
+    function getImportanceStars(imp) {
+      if (imp === 3) return "★★★";
+      if (imp === 2) return "★★";
+      return "★";
+    }
+    
+    // 通常表示：レンダリング（グリッドレイアウト、サイズは内容に合わせ自動調整）
+    function renderActiveTasks() {
+      cancelShuffleAnimation();
+      const board = document.getElementById('task-board');
+      board.innerHTML = '';
+      activeTasks.forEach((task, index) => {
+        const taskDiv = createTaskDiv(task, false);
+        const cols = Math.floor(board.clientWidth / 170) || 1;
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        taskDiv.style.top = (row * 170 + 10) + 'px';
+        taskDiv.style.left = (col * 170 + 10) + 'px';
+        board.appendChild(taskDiv);
+      });
+    }
+    function renderCompletedTasks() {
+      const board = document.getElementById('completed-board');
+      board.innerHTML = '';
+      completedTasks.forEach((task, index) => {
+        const taskDiv = createTaskDiv(task, true);
+        const cols = Math.floor(board.clientWidth / 170) || 1;
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        taskDiv.style.top = (row * 170 + 10) + 'px';
+        taskDiv.style.left = (col * 170 + 10) + 'px';
+        board.appendChild(taskDiv);
+      });
+    }
+    
+    // 付箋要素作成：重要度によるテキストサイズ（高:20px、中:18px、低:16px）
+    function createTaskDiv(task, isCompleted) {
+      const taskDiv = document.createElement('div');
+      taskDiv.classList.add('task');
+      let textSize;
+      if (task.importance === 3) { textSize = "20px"; taskDiv.classList.add('importance-high'); }
+      else if (task.importance === 2) { textSize = "18px"; taskDiv.classList.add('importance-medium'); }
+      else { textSize = "16px"; taskDiv.classList.add('importance-low'); }
+      taskDiv.dataset.id = task.id;
+      if (task.deadline) {
+        if (new Date(task.deadline).getTime() - Date.now() < 24*60*60*1000) {
+          taskDiv.classList.add('urgent');
         }
       }
-      function formatDate(dateStr) {
-        const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
-        return new Date(dateStr).toLocaleString('ja-JP', options);
-      }
-      function getImportanceStars(imp) {
-        if (imp === 3) return "★★★";
-        if (imp === 2) return "★★";
-        return "★";
-      }
-      
-      // アクティブタスクのレンダリング（グリッドレイアウト、サイズは内容に合わせて可変）
-      function renderActiveTasks() {
-        const board = document.getElementById('task-board');
-        board.innerHTML = '';
-        activeTasks.forEach((task, index) => {
-          const taskDiv = createTaskDiv(task, false);
-          const cols = Math.floor(board.clientWidth / 170) || 1;
-          const row = Math.floor(index / cols);
-          const col = index % cols;
-          taskDiv.style.top = (row * 170 + 10) + 'px';
-          taskDiv.style.left = (col * 170 + 10) + 'px';
-          taskDiv.classList.remove('float');
-          taskDiv.style.transform = 'none';
-          board.appendChild(taskDiv);
-        });
-      }
-      function renderCompletedTasks() {
-        const board = document.getElementById('completed-board');
-        board.innerHTML = '';
-        completedTasks.forEach((task, index) => {
-          const taskDiv = createTaskDiv(task, true);
-          const cols = Math.floor(board.clientWidth / 170) || 1;
-          const row = Math.floor(index / cols);
-          const col = index % cols;
-          taskDiv.style.top = (row * 170 + 10) + 'px';
-          taskDiv.style.left = (col * 170 + 10) + 'px';
-          board.appendChild(taskDiv);
-        });
-      }
-      
-      // 付箋要素作成
-      function createTaskDiv(task, isCompleted) {
-        const taskDiv = document.createElement('div');
-        taskDiv.classList.add('task');
-        // 重要度に応じたテキストサイズ（高:20px、中:18px、低:16px）
-        let textSize;
-        if (task.importance === 3) {
-          textSize = "20px";
-          taskDiv.classList.add('importance-high');
-        } else if (task.importance === 2) {
-          textSize = "18px";
-          taskDiv.classList.add('importance-medium');
-        } else {
-          textSize = "16px";
-          taskDiv.classList.add('importance-low');
+      taskDiv.innerHTML = `
+        <div class="memo-content" style="font-size: ${textSize};">
+          ${task.content}
+        </div>
+        <div class="meta-info">
+          <div class="deadline">${task.deadline ? "期限: " + formatDate(task.deadline) : "期限: なし"}</div>
+          <div class="importance">重要度: ${getImportanceStars(task.importance)}</div>
+          <div class="created">記入日: ${formatDate(task.created)}</div>
+        </div>
+        <div class="btn-group">
+          <button class="edit-btn" onclick="editTask(${task.id}, event)">編集</button>
+          ${isCompleted ? "" : `<button class="complete-btn" onclick="completeTask(${task.id}, event)">完了</button>`}
+        </div>
+      `;
+      // タップ時に最前面へ
+      taskDiv.addEventListener('click', function(e) {
+        if (e.target.tagName.toLowerCase() !== 'button') {
+          taskDiv.style.zIndex = highestZ++;
         }
-        taskDiv.dataset.id = task.id;
-        if (task.deadline) {
-          const deadlineTime = new Date(task.deadline).getTime();
-          const now = Date.now();
-          if (deadlineTime - now < 24 * 60 * 60 * 1000) {
-            taskDiv.classList.add('urgent');
-          }
-        }
-        taskDiv.innerHTML = `
-          <div class="memo-content" style="font-size: ${textSize};">
-            ${task.content}
-          </div>
-          <div class="meta-info">
-            <div class="deadline">${task.deadline ? "期限: " + formatDate(task.deadline) : "期限: なし"}</div>
-            <div class="importance">重要度: ${getImportanceStars(task.importance)}</div>
-            <div class="created">記入日: ${formatDate(task.created)}</div>
-          </div>
-          <div class="btn-group">
-            <button class="edit-btn" onclick="editTask(${task.id}, event)">編集</button>
-            ${isCompleted ? "" : `<button class="complete-btn" onclick="completeTask(${task.id}, event)">完了</button>`}
-          </div>
-        `;
-        // タップ時（ボタン以外）に最前面へ
-        taskDiv.addEventListener('click', function(e) {
-          if (e.target.tagName.toLowerCase() !== 'button') {
-            taskDiv.style.zIndex = highestZ++;
-          }
-        });
-        return taskDiv;
-      }
-      
-      // ドラッグ可能にする関数（開始時に最前面へ）
-      function enableDrag(el) {
-        el.style.cursor = "move";
-        el.addEventListener("mousedown", onStart);
-        el.addEventListener("touchstart", onStart);
-        let offsetX, offsetY;
-        let dragging = false;
-        function onStart(e) {
-          e.preventDefault();
-          el.style.zIndex = highestZ++;
-          dragging = true;
-          if (e.type === "mousedown") {
-            offsetX = e.clientX - el.offsetLeft;
-            offsetY = e.clientY - el.offsetTop;
-            document.addEventListener("mousemove", onMove);
-            document.addEventListener("mouseup", onEnd);
-          } else if (e.type === "touchstart") {
-            const touch = e.touches[0];
-            offsetX = touch.clientX - el.offsetLeft;
-            offsetY = touch.clientY - el.offsetTop;
-            document.addEventListener("touchmove", onMove);
-            document.addEventListener("touchend", onEnd);
-          }
-        }
-        function onMove(e) {
-          if (!dragging) return;
-          let clientX, clientY;
-          if (e.type === "mousemove") {
-            clientX = e.clientX;
-            clientY = e.clientY;
-          } else if (e.type === "touchmove") {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-          }
-          el.style.left = (clientX - offsetX) + "px";
-          el.style.top = (clientY - offsetY) + "px";
-        }
-        function onEnd(e) {
-          dragging = false;
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onEnd);
-          document.removeEventListener("touchmove", onMove);
-          document.removeEventListener("touchend", onEnd);
-        }
-      }
-      
-      window.editTask = function(id, e) {
-        e.stopPropagation();
-        let task = activeTasks.find(t => t.id == id);
-        if (!task) return;
-        const newContent = prompt("メモ内容を編集してください：", task.content);
-        if (newContent === null) return;
-        const newDeadline = prompt("期限を編集してください（YYYY-MM-DDTHH:MM形式、空欄で期限なし）：", task.deadline ? task.deadline.slice(0,16) : "");
-        if (newDeadline === null) return;
-        const newImportance = prompt("重要度を編集してください（1:低, 2:中, 3:高）：", task.importance);
-        if (newImportance === null) return;
-        task.content = newContent;
-        task.deadline = newDeadline ? new Date(newDeadline).toISOString() : null;
-        task.importance = parseInt(newImportance) || task.importance;
-        saveTasks();
-        renderActiveTasks();
-      };
-      
-      window.completeTask = function(id, e) {
-        e.stopPropagation();
-        const index = activeTasks.findIndex(t => t.id == id);
-        if (index > -1) {
-          const completed = activeTasks.splice(index, 1)[0];
-          completedTasks.push(completed);
-          saveTasks();
-          renderActiveTasks();
-          renderCompletedTasks();
-        }
-      };
-      
-      window.showCompleted = function() {
-        document.getElementById('active-view').style.display = 'none';
-        document.getElementById('active-header').style.display = 'none';
-        document.getElementById('completed-view').style.display = 'block';
-        document.getElementById('completed-header').style.display = 'block';
-      };
-      
-      window.showActive = function() {
-        document.getElementById('completed-view').style.display = 'none';
-        document.getElementById('completed-header').style.display = 'none';
-        document.getElementById('active-view').style.display = 'block';
-        document.getElementById('active-header').style.display = 'block';
-        renderActiveTasks();
-      };
-      
-      document.getElementById('task-form').addEventListener('submit', function(e) {
+      });
+      return taskDiv;
+    }
+    
+    // ドラッグ可能にする関数（開始時に最前面へ）
+    function enableDrag(el) {
+      el.style.cursor = "move";
+      el.addEventListener("mousedown", onStart);
+      el.addEventListener("touchstart", onStart);
+      let offsetX, offsetY;
+      let dragging = false;
+      function onStart(e) {
         e.preventDefault();
-        const content = document.getElementById('task-content').value;
-        const deadlineVal = document.getElementById('task-deadline').value;
-        const importance = parseInt(document.getElementById('task-importance').value);
-        const newTask = {
-          id: taskId++,
-          content: content,
-          created: new Date().toISOString(),
-          deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
-          importance: importance
-        };
-        activeTasks.push(newTask);
+        el.style.zIndex = highestZ++;
+        dragging = true;
+        if (e.type === "mousedown") {
+          offsetX = e.clientX - el.offsetLeft;
+          offsetY = e.clientY - el.offsetTop;
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onEnd);
+        } else if (e.type === "touchstart") {
+          const touch = e.touches[0];
+          offsetX = touch.clientX - el.offsetLeft;
+          offsetY = touch.clientY - el.offsetTop;
+          document.addEventListener("touchmove", onMove);
+          document.addEventListener("touchend", onEnd);
+        }
+      }
+      function onMove(e) {
+        if (!dragging) return;
+        let clientX, clientY;
+        if (e.type === "mousemove") { clientX = e.clientX; clientY = e.clientY; }
+        else if (e.type === "touchmove") { clientX = e.touches[0].clientX; clientY = e.touches[0].clientY; }
+        el.style.left = (clientX - offsetX) + "px";
+        el.style.top = (clientY - offsetY) + "px";
+      }
+      function onEnd(e) {
+        dragging = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onEnd);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onEnd);
+      }
+    }
+    
+    window.editTask = function(id, e) {
+      e.stopPropagation();
+      let task = activeTasks.find(t => t.id == id);
+      if (!task) return;
+      const newContent = prompt("メモ内容を編集してください：", task.content);
+      if (newContent === null) return;
+      const newDeadline = prompt("期限を編集してください（YYYY-MM-DDTHH:MM形式、空欄で期限なし）：", task.deadline ? task.deadline.slice(0,16) : "");
+      if (newDeadline === null) return;
+      const newImportance = prompt("重要度を編集してください（1:低, 2:中, 3:高）：", task.importance);
+      if (newImportance === null) return;
+      task.content = newContent;
+      task.deadline = newDeadline ? new Date(newDeadline).toISOString() : null;
+      task.importance = parseInt(newImportance) || task.importance;
+      saveTasks();
+      renderActiveTasks();
+    };
+    
+    window.completeTask = function(id, e) {
+      e.stopPropagation();
+      const index = activeTasks.findIndex(t => t.id == id);
+      if (index > -1) {
+        const completed = activeTasks.splice(index, 1)[0];
+        completedTasks.push(completed);
         saveTasks();
         renderActiveTasks();
-        e.target.reset();
-      });
-      
-      window.sortTasks = function(criteria, view) {
-        const list = view === 'active' ? activeTasks : completedTasks;
-        if (criteria === 'deadline') {
-          list.sort((a, b) => {
-            if (a.deadline && b.deadline) {
-              return new Date(a.deadline) - new Date(b.deadline);
-            } else if (a.deadline) {
-              return -1;
-            } else if (b.deadline) {
-              return 1;
-            }
-            return 0;
-          });
-        } else if (criteria === 'importance') {
-          list.sort((a, b) => b.importance - a.importance);
-        } else if (criteria === 'created') {
-          list.sort((a, b) => new Date(a.created) - new Date(b.created));
-        }
-        saveTasks();
-        if (view === 'active') {
-          renderActiveTasks();
-        } else {
-          renderCompletedTasks();
-        }
-      };
-      
-      window.shuffleTasks = function() {
-        const board = document.getElementById('task-board');
-        const taskDivs = board.getElementsByClassName('task');
-        for (let i = 0; i < taskDivs.length; i++) {
-          const taskDiv = taskDivs[i];
-          const task = activeTasks.find(t => t.id == taskDiv.dataset.id);
-          if (task) {
-            if (task.importance === 3) {
-              taskDiv.style.minWidth = '220px';
-              taskDiv.style.minHeight = '200px';
-            } else if (task.importance === 2) {
-              taskDiv.style.minWidth = '180px';
-              taskDiv.style.minHeight = '170px';
-            } else {
-              taskDiv.style.minWidth = '150px';
-              taskDiv.style.minHeight = '130px';
-            }
-          }
-          const boardWidth = board.clientWidth - taskDiv.offsetWidth;
-          const boardHeight = board.clientHeight - taskDiv.offsetHeight;
-          const randomLeft = Math.random() * boardWidth;
-          const randomTop = Math.random() * boardHeight;
-          taskDiv.style.left = randomLeft + 'px';
-          taskDiv.style.top = randomTop + 'px';
-          const randomAngle = Math.random() * 20 - 10;
-          taskDiv.style.setProperty('--rotation', randomAngle + 'deg');
-          taskDiv.classList.add('float');
-          enableDrag(taskDiv);
-        }
-      };
-
-      loadTasks();
+        renderCompletedTasks();
+      }
+    };
+    
+    window.showCompleted = function() {
+      cancelShuffleAnimation();
+      document.getElementById('active-view').style.display = 'none';
+      document.getElementById('active-header').style.display = 'none';
+      document.getElementById('completed-view').style.display = 'block';
+      document.getElementById('completed-header').style.display = 'block';
+    };
+    
+    window.showActive = function() {
+      cancelShuffleAnimation();
+      document.getElementById('completed-view').style.display = 'none';
+      document.getElementById('completed-header').style.display = 'none';
+      document.getElementById('active-view').style.display = 'block';
+      document.getElementById('active-header').style.display = 'block';
       renderActiveTasks();
-      renderCompletedTasks();
+    };
+    
+    document.getElementById('task-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const content = document.getElementById('task-content').value;
+      const deadlineVal = document.getElementById('task-deadline').value;
+      const importance = parseInt(document.getElementById('task-importance').value);
+      const newTask = {
+        id: taskId++,
+        content: content,
+        created: new Date().toISOString(),
+        deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null,
+        importance: importance
+      };
+      activeTasks.push(newTask);
+      saveTasks();
+      renderActiveTasks();
+      e.target.reset();
     });
+    
+    window.sortTasks = function(criteria, view) {
+      cancelShuffleAnimation();
+      const list = view === 'active' ? activeTasks : completedTasks;
+      if (criteria === 'deadline') {
+        list.sort((a, b) => {
+          if (a.deadline && b.deadline) {
+            return new Date(a.deadline) - new Date(b.deadline);
+          } else if (a.deadline) {
+            return -1;
+          } else if (b.deadline) {
+            return 1;
+          }
+          return 0;
+        });
+      } else if (criteria === 'importance') {
+        list.sort((a, b) => b.importance - a.importance);
+      } else if (criteria === 'created') {
+        list.sort((a, b) => new Date(a.created) - new Date(b.created));
+      }
+      saveTasks();
+      if (view === 'active') renderActiveTasks();
+      else renderCompletedTasks();
+    };
+    
+    // 連続動作のシャッフルアニメーション
+    function animateShuffle() {
+      const board = document.getElementById('task-board');
+      const boardWidth = board.clientWidth;
+      const boardHeight = board.clientHeight;
+      const taskDivs = board.getElementsByClassName('task');
+      for (let i = 0; i < taskDivs.length; i++) {
+        const el = taskDivs[i];
+        let left = parseFloat(el.style.left) || 0;
+        let top = parseFloat(el.style.top) || 0;
+        if (typeof el.dx === 'undefined') {
+          const speed = Math.random() * 0.8 + 0.2; // 0.2～1.0 px/frame
+          const angle = Math.random() * 2 * Math.PI;
+          el.dx = speed * Math.cos(angle);
+          el.dy = speed * Math.sin(angle);
+        }
+        left += el.dx;
+        top += el.dy;
+        const elWidth = el.offsetWidth;
+        const elHeight = el.offsetHeight;
+        if (left < 0) { left = 0; el.dx = -el.dx; }
+        else if (left + elWidth > boardWidth) { left = boardWidth - elWidth; el.dx = -el.dx; }
+        if (top < 0) { top = 0; el.dy = -el.dy; }
+        else if (top + elHeight > boardHeight) { top = boardHeight - elHeight; el.dy = -el.dy; }
+        el.style.left = left + "px";
+        el.style.top = top + "px";
+      }
+      shuffleAnimationId = requestAnimationFrame(animateShuffle);
+    }
+    
+    function shuffleTasks() {
+      const board = document.getElementById('task-board');
+      const taskDivs = board.getElementsByClassName('task');
+      for (let i = 0; i < taskDivs.length; i++) {
+        const taskDiv = taskDivs[i];
+        const task = activeTasks.find(t => t.id == taskDiv.dataset.id);
+        if (task) {
+          if (task.importance === 3) {
+            taskDiv.style.minWidth = '220px';
+            taskDiv.style.minHeight = '200px';
+          } else if (task.importance === 2) {
+            taskDiv.style.minWidth = '180px';
+            taskDiv.style.minHeight = '170px';
+          } else {
+            taskDiv.style.minWidth = '150px';
+            taskDiv.style.minHeight = '130px';
+          }
+        }
+        const boardWidth = board.clientWidth - taskDiv.offsetWidth;
+        const boardHeight = board.clientHeight - taskDiv.offsetHeight;
+        const randomLeft = Math.random() * boardWidth;
+        const randomTop = Math.random() * boardHeight;
+        taskDiv.style.left = randomLeft + 'px';
+        taskDiv.style.top = randomTop + 'px';
+        const randomAngle = Math.random() * 20 - 10;
+        taskDiv.style.setProperty('--rotation', randomAngle + 'deg');
+        delete taskDiv.dx;
+        delete taskDiv.dy;
+        enableDrag(taskDiv);
+      }
+      if (shuffleAnimationId) cancelAnimationFrame(shuffleAnimationId);
+      animateShuffle();
+    }
+    
+    function cancelShuffleAnimation() {
+      if (shuffleAnimationId) { cancelAnimationFrame(shuffleAnimationId); shuffleAnimationId = null; }
+    }
+    
+    loadTasks();
+    renderActiveTasks();
+    renderCompletedTasks();
   </script>
 </body>
 </html>
