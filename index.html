@@ -18,22 +18,30 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      position: relative;
+      z-index: 2000;
     }
     header h1 {
       margin: 0;
       font-size: 18px; /* タイトルは常に表示、フォント小さめ */
     }
-    /* メニュー表示用（スマホ向け） */
+    /* メニュー表示用トグルボタン */
     #menu-toggle {
       font-size: 14px;
       padding: 5px 10px;
     }
-    /* コントロールパネル：スマホの場合は必要に応じて表示 */
+    /* コントロールパネル：オーバーレイとして固定表示（初期は非表示） */
     #control-panel {
-      display: none;
+      position: fixed;
+      top: 50px; /* ヘッダー直下 */
+      left: 0;
+      right: 0;
       background-color: #fff;
       border-bottom: 1px solid #ddd;
       padding: 5px 10px;
+      z-index: 1500;
+      display: none;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
     }
     .header-buttons button {
       margin: 0 5px;
@@ -58,9 +66,12 @@
       padding: 5px;
       font-size: 14px;
     }
-    /* 期限入力をわかりやすくするためのラベルは HTML 側で記述 */
-    
-    /* タスクボード（PC・スマホ共通） */
+    /* 期限入力のラベル追加 */
+    label[for="task-deadline"] {
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    /* タスクボード */
     #task-board, #completed-board {
       position: relative;
       width: 100%;
@@ -69,10 +80,10 @@
       overflow: auto;
       background-color: #eef;
     }
-    /* スマホ用にタスクボードの高さを画面に合わせる */
+    /* スマホ用：タスクボードを画面全体に広げる */
     @media (max-width: 600px) {
       #task-board {
-        height: calc(100vh - 60px); /* ヘッダー等を差し引いた高さ */
+        height: calc(100vh - 50px); /* ヘッダー分は既に表示されているので残り */
       }
     }
     /* 付箋の基本スタイル（可変サイズ） */
@@ -116,6 +127,7 @@
       margin-right: 3px;
       padding: 2px 5px;
     }
+    /* シャッフル時の連続アニメーションは JavaScript 側で実装 */
   </style>
 </head>
 <body>
@@ -123,7 +135,7 @@
     <h1>浮遊メモ</h1>
     <button id="menu-toggle">メニュー</button>
   </header>
-  <!-- コントロールパネル：必要時にトグル表示 -->
+  <!-- コントロールパネル（オーバーレイ） -->
   <div id="control-panel">
     <div id="active-header" class="header-buttons">
       <button onclick="sortTasks('deadline', 'active')">期限順</button>
@@ -154,7 +166,7 @@
   </div>
 
   <script>
-    // メニューのトグル表示
+    // メニューのトグル（オーバーレイ表示／非表示）
     document.getElementById('menu-toggle').addEventListener('click', function() {
       const cp = document.getElementById('control-panel');
       cp.style.display = (cp.style.display === 'block') ? 'none' : 'block';
@@ -173,8 +185,9 @@
     let taskId = 0;
     let highestZ = 1000;
     let shuffleAnimationId;
+    let autoShuffleTimeout;
 
-    // 自動シャッフルタイマーのリセット（最後の操作から30秒）
+    // 最後の操作から自動シャッフルタイマー（30秒）
     function resetAutoShuffleTimer() {
       if (autoShuffleTimeout) clearTimeout(autoShuffleTimeout);
       autoShuffleTimeout = setTimeout(function() {
@@ -183,7 +196,6 @@
         }
       }, 30000);
     }
-    let autoShuffleTimeout;
     ['mousemove', 'touchstart', 'scroll', 'keydown', 'click'].forEach(function(eventName) {
       document.addEventListener(eventName, resetAutoShuffleTimer);
     });
@@ -216,7 +228,7 @@
       return "★";
     }
     
-    // 通常表示：グリッドレイアウトでレンダリング（シャッフル時はアニメーション停止）
+    // 通常表示時：グリッドレイアウトでレンダリング（アニメーション停止）
     function renderActiveTasks() {
       cancelShuffleAnimation();
       const board = document.getElementById('task-board');
@@ -407,7 +419,7 @@
       else renderCompletedTasks();
     };
     
-    // アニメーション用：各付箋をゆっくり移動、端に来たら反転
+    // 連続アニメーション：各付箋をゆっくり移動、端で反転（PC・スマホ共通）
     function animateShuffle() {
       const board = document.getElementById('task-board');
       const boardWidth = board.clientWidth;
@@ -418,7 +430,7 @@
         let left = parseFloat(el.style.left) || 0;
         let top = parseFloat(el.style.top) || 0;
         if (typeof el.dx === 'undefined') {
-          const speed = Math.random() * 0.8 + 0.2; // 0.2～1.0 px/frame
+          const speed = Math.random() * 0.8 + 0.2; // 0.2～1.0 px/frame（速すぎないように）
           const angle = Math.random() * 2 * Math.PI;
           el.dx = speed * Math.cos(angle);
           el.dy = speed * Math.sin(angle);
@@ -440,7 +452,7 @@
       if (shuffleAnimationId) { cancelAnimationFrame(shuffleAnimationId); shuffleAnimationId = null; }
     }
     
-    // シャッフル表示開始：初期位置をランダムに設定してからアニメーション開始
+    // シャッフル表示開始：各付箋の初期配置をランダムに設定し、連続アニメーションを開始
     window.shuffleTasks = function() {
       const board = document.getElementById('task-board');
       const taskDivs = board.getElementsByClassName('task');
@@ -475,9 +487,12 @@
       animateShuffle();
     };
     
+    // 初期状態：ロード後にシャッフル表示モードにする
     loadTasks();
     renderActiveTasks();
     renderCompletedTasks();
+    // 初期はシャッフル表示モード
+    shuffleTasks();
   </script>
 </body>
 </html>
