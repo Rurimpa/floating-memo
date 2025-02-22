@@ -21,14 +21,14 @@
     }
     header h1 {
       margin: 0;
-      font-size: 18px; /* タイトルは常に表示、フォントは小さめ */
+      font-size: 18px; /* タイトルは常に表示、フォント小さめ */
     }
-    /* メニュー表示用ボタン（スマホ用） */
+    /* メニュー表示用（スマホ向け） */
     #menu-toggle {
       font-size: 14px;
       padding: 5px 10px;
     }
-    /* コントロールパネル（ソートボタン、メモ入力フォーム） */
+    /* コントロールパネル：スマホの場合は必要に応じて表示 */
     #control-panel {
       display: none;
       background-color: #fff;
@@ -58,11 +58,9 @@
       padding: 5px;
       font-size: 14px;
     }
-    /* 期限入力はラベル付きで分かりやすく */
-    #task-deadline {
-      vertical-align: middle;
-    }
-    /* タスクボード */
+    /* 期限入力をわかりやすくするためのラベルは HTML 側で記述 */
+    
+    /* タスクボード（PC・スマホ共通） */
     #task-board, #completed-board {
       position: relative;
       width: 100%;
@@ -70,6 +68,12 @@
       border: 1px solid #ccc;
       overflow: auto;
       background-color: #eef;
+    }
+    /* スマホ用にタスクボードの高さを画面に合わせる */
+    @media (max-width: 600px) {
+      #task-board {
+        height: calc(100vh - 60px); /* ヘッダー等を差し引いた高さ */
+      }
     }
     /* 付箋の基本スタイル（可変サイズ） */
     .task {
@@ -119,6 +123,7 @@
     <h1>浮遊メモ</h1>
     <button id="menu-toggle">メニュー</button>
   </header>
+  <!-- コントロールパネル：必要時にトグル表示 -->
   <div id="control-panel">
     <div id="active-header" class="header-buttons">
       <button onclick="sortTasks('deadline', 'active')">期限順</button>
@@ -149,11 +154,19 @@
   </div>
 
   <script>
-    // メニュー表示のトグル処理
+    // メニューのトグル表示
     document.getElementById('menu-toggle').addEventListener('click', function() {
       const cp = document.getElementById('control-panel');
       cp.style.display = (cp.style.display === 'block') ? 'none' : 'block';
     });
+
+    // requestAnimationFrame のフォールバック
+    window.requestAnimFrame = (function(){
+      return window.requestAnimationFrame || 
+             window.webkitRequestAnimationFrame || 
+             window.mozRequestAnimationFrame ||
+             function(callback){ window.setTimeout(callback, 1000/60); };
+    })();
 
     let activeTasks = [];
     let completedTasks = [];
@@ -161,7 +174,21 @@
     let highestZ = 1000;
     let shuffleAnimationId;
 
-    // 保存・復元
+    // 自動シャッフルタイマーのリセット（最後の操作から30秒）
+    function resetAutoShuffleTimer() {
+      if (autoShuffleTimeout) clearTimeout(autoShuffleTimeout);
+      autoShuffleTimeout = setTimeout(function() {
+        if (document.getElementById('active-view').style.display !== 'none') {
+          shuffleTasks();
+        }
+      }, 30000);
+    }
+    let autoShuffleTimeout;
+    ['mousemove', 'touchstart', 'scroll', 'keydown', 'click'].forEach(function(eventName) {
+      document.addEventListener(eventName, resetAutoShuffleTimer);
+    });
+    resetAutoShuffleTimer();
+
     function saveTasks() {
       localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
       localStorage.setItem('completedTasks', JSON.stringify(completedTasks));
@@ -173,7 +200,7 @@
         completedTasks = JSON.parse(localStorage.getItem('completedTasks')) || [];
         taskId = parseInt(localStorage.getItem('taskId'), 10) || 0;
       } catch (e) {
-        console.error(e);
+        console.error("localStorage読み込みエラー", e);
         activeTasks = [];
         completedTasks = [];
         taskId = 0;
@@ -189,7 +216,7 @@
       return "★";
     }
     
-    // 通常表示：レンダリング（グリッドレイアウト、サイズは内容に合わせ自動調整）
+    // 通常表示：グリッドレイアウトでレンダリング（シャッフル時はアニメーション停止）
     function renderActiveTasks() {
       cancelShuffleAnimation();
       const board = document.getElementById('task-board');
@@ -218,7 +245,7 @@
       });
     }
     
-    // 付箋要素作成：重要度によるテキストサイズ（高:20px、中:18px、低:16px）
+    // 付箋要素作成：重要度によりテキストサイズ変更（高:20px、中:18px、低:16px）
     function createTaskDiv(task, isCompleted) {
       const taskDiv = document.createElement('div');
       taskDiv.classList.add('task');
@@ -246,7 +273,7 @@
           ${isCompleted ? "" : `<button class="complete-btn" onclick="completeTask(${task.id}, event)">完了</button>`}
         </div>
       `;
-      // タップ時に最前面へ
+      // タップ時（ボタン以外）は最前面へ
       taskDiv.addEventListener('click', function(e) {
         if (e.target.tagName.toLowerCase() !== 'button') {
           taskDiv.style.zIndex = highestZ++;
@@ -255,7 +282,7 @@
       return taskDiv;
     }
     
-    // ドラッグ可能にする関数（開始時に最前面へ）
+    // ドラッグ機能：開始時に対象を最前面へ
     function enableDrag(el) {
       el.style.cursor = "move";
       el.addEventListener("mousedown", onStart);
@@ -365,13 +392,9 @@
       const list = view === 'active' ? activeTasks : completedTasks;
       if (criteria === 'deadline') {
         list.sort((a, b) => {
-          if (a.deadline && b.deadline) {
-            return new Date(a.deadline) - new Date(b.deadline);
-          } else if (a.deadline) {
-            return -1;
-          } else if (b.deadline) {
-            return 1;
-          }
+          if (a.deadline && b.deadline) return new Date(a.deadline) - new Date(b.deadline);
+          else if (a.deadline) return -1;
+          else if (b.deadline) return 1;
           return 0;
         });
       } else if (criteria === 'importance') {
@@ -384,7 +407,7 @@
       else renderCompletedTasks();
     };
     
-    // 連続動作のシャッフルアニメーション
+    // アニメーション用：各付箋をゆっくり移動、端に来たら反転
     function animateShuffle() {
       const board = document.getElementById('task-board');
       const boardWidth = board.clientWidth;
@@ -411,10 +434,14 @@
         el.style.left = left + "px";
         el.style.top = top + "px";
       }
-      shuffleAnimationId = requestAnimationFrame(animateShuffle);
+      shuffleAnimationId = requestAnimFrame(animateShuffle);
+    }
+    function cancelShuffleAnimation() {
+      if (shuffleAnimationId) { cancelAnimationFrame(shuffleAnimationId); shuffleAnimationId = null; }
     }
     
-    function shuffleTasks() {
+    // シャッフル表示開始：初期位置をランダムに設定してからアニメーション開始
+    window.shuffleTasks = function() {
       const board = document.getElementById('task-board');
       const taskDivs = board.getElementsByClassName('task');
       for (let i = 0; i < taskDivs.length; i++) {
@@ -446,11 +473,7 @@
       }
       if (shuffleAnimationId) cancelAnimationFrame(shuffleAnimationId);
       animateShuffle();
-    }
-    
-    function cancelShuffleAnimation() {
-      if (shuffleAnimationId) { cancelAnimationFrame(shuffleAnimationId); shuffleAnimationId = null; }
-    }
+    };
     
     loadTasks();
     renderActiveTasks();
