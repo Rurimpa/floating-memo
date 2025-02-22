@@ -52,23 +52,23 @@
     #task-board, #completed-board {
       position: relative;
       width: 100%;
-      height: 500px;
+      min-height: 500px;
       border: 1px solid #ccc;
       overflow: auto;
       background-color: #eef;
     }
-    /* 各付箋の基本スタイル（非シャッフル時は同一サイズ） */
+    /* 各付箋の基本スタイル - 固定サイズをなくして可変にする */
     .task {
       position: absolute;
-      width: 150px;
-      height: 130px;
+      min-width: 150px;
+      min-height: 130px;
       border: 2px solid #f0c36d;
       border-radius: 5px;
       box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
       background-color: #fff;
       padding: 5px;
       box-sizing: border-box;
-      transition: top 0.8s ease, left 0.8s ease, width 0.8s ease, height 0.8s ease;
+      transition: top 0.8s ease, left 0.8s ease;
       cursor: pointer;
       overflow: hidden;
     }
@@ -82,7 +82,7 @@
     .importance-low {
       background-color: lightyellow;
     }
-    /* 緊急時（期限24時間以内）：枠の太さを太くして点滅 */
+    /* 緊急時（期限24時間以内）：枠を太くして点滅 */
     @keyframes blink {
       0%   { border-color: red; }
       50%  { border-color: darkred; }
@@ -92,42 +92,16 @@
       border-width: 4px !important;
       animation: blink 1s infinite;
     }
-    /* 付箋内の配置 */
+    /* 付箋内のテキスト領域 */
     .memo-content {
-      position: absolute;
-      top: 5px;
-      left: 5px;
-      right: 5px;
-      font-size: 18px; /* 大きめ */
       font-weight: bold;
       line-height: 1.4;
     }
+    /* メタ情報＆ボタン */
     .meta-info {
-      position: absolute;
-      bottom: 5px;
-      right: 5px;
-      text-align: right;
+      font-size: 12px;
     }
-    .meta-info .deadline {
-      font-size: 16px; /* 中くらい */
-    }
-    .meta-info .importance {
-      font-size: 16px; /* 中くらい */
-    }
-    .meta-info .created {
-      font-size: 12px; /* 小さく */
-    }
-    /* 付箋内でメモ内容と期限の間に余白 */
-    .meta-info {
-      margin-top: 40px;
-    }
-    /* 編集・完了ボタン（付箋内下部左寄せ） */
-    .task .btn-group {
-      position: absolute;
-      bottom: 5px;
-      left: 5px;
-    }
-    .task .btn-group button {
+    .btn-group button {
       font-size: 12px;
       margin-right: 3px;
       padding: 2px 5px;
@@ -141,9 +115,9 @@
       50%  { transform: rotate(var(--rotation, 0deg)) translateY(-10px); }
       100% { transform: rotate(var(--rotation, 0deg)) translateY(0); }
     }
-    /* ヘッダー内ボタン間の余白調整 */
+    /* ヘッダー内ボタン間の余白 */
     #active-header button:nth-child(3) {
-      margin-right: 20px; /* 記入順とシャッフル表示の間 */
+      margin-right: 20px;
     }
   </style>
 </head>
@@ -229,20 +203,19 @@
         return "★";
       }
       
-      // アクティブタスクのレンダリング
+      // アクティブタスクのレンダリング（非シャッフル時：可変サイズ、グリッド配置）
       function renderActiveTasks() {
         const board = document.getElementById('task-board');
         board.innerHTML = '';
         activeTasks.forEach((task, index) => {
           const taskDiv = createTaskDiv(task, false);
+          // Grid layout: 基本的にセル幅170pxで配置（サイズはノート内容に応じて可変）
           const cols = Math.floor(board.clientWidth / 170) || 1;
           const row = Math.floor(index / cols);
           const col = index % cols;
           taskDiv.style.top = (row * 170 + 10) + 'px';
           taskDiv.style.left = (col * 170 + 10) + 'px';
-          // 通常時は均一サイズ
-          taskDiv.style.width = '150px';
-          taskDiv.style.height = '130px';
+          // 非シャッフル時は固定サイズは設定せず、内容に応じたサイズに任せる
           taskDiv.classList.remove('float');
           taskDiv.style.transform = 'none';
           board.appendChild(taskDiv);
@@ -260,13 +233,11 @@
           const col = index % cols;
           taskDiv.style.top = (row * 170 + 10) + 'px';
           taskDiv.style.left = (col * 170 + 10) + 'px';
-          taskDiv.style.width = '150px';
-          taskDiv.style.height = '130px';
           board.appendChild(taskDiv);
         });
       }
       
-      // 付箋要素作成（急ぎの場合は .urgent クラスを付与）
+      // 付箋要素作成
       function createTaskDiv(task, isCompleted) {
         const taskDiv = document.createElement('div');
         taskDiv.classList.add('task');
@@ -285,8 +256,19 @@
             taskDiv.classList.add('urgent');
           }
         }
+        // テキストサイズを重要度によって変更（高：20px、中：18px、低：16px）
+        let textSize;
+        if (task.importance === 3) {
+          textSize = "20px";
+        } else if (task.importance === 2) {
+          textSize = "18px";
+        } else {
+          textSize = "16px";
+        }
         taskDiv.innerHTML = `
-          <div class="memo-content">${task.content}</div>
+          <div class="memo-content" style="font-size: ${textSize};">
+            ${task.content}
+          </div>
           <div class="meta-info">
             <div class="deadline">${task.deadline ? "期限: " + formatDate(task.deadline) : "期限: なし"}</div>
             <div class="importance">重要度: ${getImportanceStars(task.importance)}</div>
@@ -313,7 +295,7 @@
         function onStart(e) {
           e.preventDefault();
           dragging = true;
-          // もし浮遊アニメーションがあれば一旦停止
+          // 浮遊アニメーションを停止
           el.classList.remove('float');
           if (e.type === "mousedown") {
             offsetX = e.clientX - el.offsetLeft;
@@ -389,22 +371,20 @@
           const taskDiv = taskDivs[i];
           const task = activeTasks.find(t => t.id == taskDiv.dataset.id);
           if (task) {
-            // シャッフル時のみ、重要度に応じたサイズに変更
+            // シャッフル時は、重要度による最小サイズを設定
             if (task.importance === 3) {
-              taskDiv.style.width = '220px';
-              taskDiv.style.height = '200px';
+              taskDiv.style.minWidth = '220px';
+              taskDiv.style.minHeight = '200px';
             } else if (task.importance === 2) {
-              taskDiv.style.width = '180px';
-              taskDiv.style.height = '170px';
+              taskDiv.style.minWidth = '180px';
+              taskDiv.style.minHeight = '170px';
             } else {
-              taskDiv.style.width = '150px';
-              taskDiv.style.height = '130px';
+              taskDiv.style.minWidth = '150px';
+              taskDiv.style.minHeight = '130px';
             }
           }
-          const currentWidth = parseInt(taskDiv.style.width);
-          const currentHeight = parseInt(taskDiv.style.height);
-          const boardWidth = board.clientWidth - currentWidth;
-          const boardHeight = board.clientHeight - currentHeight;
+          const boardWidth = board.clientWidth - taskDiv.offsetWidth;
+          const boardHeight = board.clientHeight - taskDiv.offsetHeight;
           const randomLeft = Math.random() * boardWidth;
           const randomTop = Math.random() * boardHeight;
           taskDiv.style.left = randomLeft + 'px';
@@ -412,7 +392,7 @@
           const randomAngle = Math.random() * 20 - 10;
           taskDiv.style.setProperty('--rotation', randomAngle + 'deg');
           taskDiv.classList.add('float');
-          // ここでドラッグ機能を有効化
+          // ドラッグ機能を有効化
           enableDrag(taskDiv);
         }
       };
